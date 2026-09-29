@@ -1,6 +1,6 @@
 {
   "name": "repowalk",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "A blazing-fast, interactive CLI tool that walks your repository and packs it into a Markdown document for LLMs.",
   "main": "bin/run.js",
   "bin": {
