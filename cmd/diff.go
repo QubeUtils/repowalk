@@ -26,8 +26,13 @@ that have changed according to the git state (untracked, unstaged, staged).`,
 		isYAML, _ := cmd.Flags().GetBool("yaml")
 		noRedact, _ := cmd.Flags().GetBool("no-redact")
 
+		gitPath, err := exec.LookPath("git")
+		if err != nil {
+			return fmt.Errorf("git not found in PATH: %w", err)
+		}
+
 		// Parse git status --porcelain to find all changed files reliably
-		gitCmd := exec.Command("git", "status", "--porcelain")
+		gitCmd := exec.Command(gitPath, "status", "--porcelain")
 		out, err := gitCmd.Output()
 		if err != nil {
 			return fmt.Errorf("failed to run git status: %w", err)

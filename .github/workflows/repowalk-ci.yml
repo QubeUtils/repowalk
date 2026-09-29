@@ -19,7 +19,7 @@ jobs:
           go-version: '1.26'
           
       - name: Install RepoWalk
-        run: go install github.com/QubeUtils/repowalk@latest
+        run: go install .
 
       - name: Generate AI Context Diff
         run: |
