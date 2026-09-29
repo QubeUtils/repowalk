@@ -16,15 +16,15 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
           
       - name: Install RepoWalk
-        run: go install github.com/QubeUtils/repowalk@latest
+        run: go install .
 
       - name: Generate AI Context Diff
         run: |
           # Generate a single markdown file containing only the changed files in the PR
-          repowalk diff --persona review -o pr_context.md
+          repowalk diff --persona review > pr_context.md
           
       # Add your favorite AI API step here to consume `pr_context.md`.
       # For example, using a simple python script, or an existing action:

@@ -44,8 +44,7 @@ func LoadConfig() Config {
 		return DefaultConfig
 	}
 
-	var cfg Config
-	cfg = DefaultConfig
+	cfg := DefaultConfig
 
 	// Read global config
 	if data, err := os.ReadFile(configPath); err == nil {
