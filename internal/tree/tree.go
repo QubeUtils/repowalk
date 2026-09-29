@@ -18,9 +18,9 @@ type node struct {
 }
 
 var (
-	colorDir    = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true) // Light Blue
-	colorFile   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))           // Light Gray
-	colorBranch = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))           // Dark Gray
+	colorDir    = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)  // Light Blue
+	colorFile   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))            // Light Gray
+	colorBranch = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))            // Dark Gray
 	colorRoot   = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true) // Pink
 )
 
@@ -114,7 +114,7 @@ func printNode(sb *strings.Builder, n *node, prefix string, currentLevel, maxLev
 		}
 
 		if useColor {
-			sb.WriteString(colorBranch.Render(prefix+connector))
+			sb.WriteString(colorBranch.Render(prefix + connector))
 			if child.IsDir {
 				sb.WriteString(colorDir.Render(name) + "\n")
 			} else {

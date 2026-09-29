@@ -68,13 +68,13 @@ type Model struct {
 	message       string
 	newVersion    string
 
-	searchInput  textinput.Model
-	isSearching  bool
+	searchInput    textinput.Model
+	isSearching    bool
 	exportInput    textinput.Model
-	exportStep     int    // 0: none, 1: filename, 2: directory
+	exportStep     int // 0: none, 1: filename, 2: directory
 	exportFileName string
 	quitting       bool
-	fileViewport viewport.Model
+	fileViewport   viewport.Model
 
 	editMode   bool
 	editCursor int
@@ -392,7 +392,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					outPath := filepath.Join(exportDir, m.exportFileName)
 					m.exportStep = 0
 					m.exportInput.Blur()
-					
+
 					os.MkdirAll(exportDir, 0755)
 					dump := m.generateDump()
 					err := os.WriteFile(outPath, []byte(dump), 0644)
@@ -469,7 +469,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.exportInput.SetValue(filepath.Base(m.defaultOut))
 			m.exportInput.Focus()
 			return m, textinput.Blink
-			
+
 		case "enter":
 			// Fast export to default
 			dump := m.generateDump()
