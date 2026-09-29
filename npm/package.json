@@ -1,0 +1,21 @@
+{
+  "name": "repowalk",
+  "version": "0.1.0",
+  "description": "A blazing-fast, interactive CLI tool that walks your repository and packs it into a Markdown document for LLMs.",
+  "main": "bin/run.js",
+  "bin": {
+    "repowalk": "bin/run.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/QubeUtils/repowalk.git"
+  },
+  "author": "QubeUtils",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  }
+}

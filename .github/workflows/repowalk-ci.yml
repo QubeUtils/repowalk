@@ -1,0 +1,35 @@
+name: RepoWalk AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required to accurately generate a diff
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          
+      - name: Install RepoWalk
+        run: go install github.com/QubeUtils/repowalk@latest
+
+      - name: Generate AI Context Diff
+        run: |
+          # Generate a single markdown file containing only the changed files in the PR
+          repowalk diff --persona review -o pr_context.md
+          
+      # Add your favorite AI API step here to consume `pr_context.md`.
+      # For example, using a simple python script, or an existing action:
+      # - name: Send Context to LLM
+      #   uses: some/ai-review-action@v1
+      #   with:
+      #     context_file: pr_context.md
+      #     api_key: ${{ secrets.OPENAI_API_KEY }}
