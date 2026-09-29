@@ -14,7 +14,7 @@ jobs:
           fetch-depth: 0 # Required to accurately generate a diff
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.26'
           
