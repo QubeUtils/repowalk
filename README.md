@@ -18,10 +18,19 @@ Designed specifically for the era of AI coding, RepoWalk is the ultimate bridge 
 
 ## 🚀 Installation
 
-*More installation methods (Homebrew, APT) coming soon in v1.0!*
+**Homebrew (macOS / Linux):**
+```bash
+brew install qubeutils/tap/repowalk
+```
 
-For now, you can install via `go install`:
+**NPM (Node.js):**
+```bash
+npx repowalk ui
+# OR globally
+npm install -g repowalk
+```
 
+**Go Developer:**
 ```bash
 go install github.com/QubeUtils/repowalk@latest
 ```

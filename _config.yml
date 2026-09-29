@@ -1,0 +1,7 @@
+theme: jekyll-theme-cayman
+title: RepoWalk
+description: A blazing-fast, interactive CLI tool that walks your repository and packs it into a Markdown document for LLMs.
+show_downloads: true
+github:
+  is_project_page: true
+  repository_url: https://github.com/QubeUtils/repowalk
