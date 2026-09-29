@@ -167,7 +167,7 @@ func TestWalker_WalkMicroservice(t *testing.T) {
 			validNames = append(validNames, n.Name)
 		}
 	}
-	
+
 	if len(validNames) != 1 || validNames[0] != "service.go" {
 		t.Errorf("Expected only service.go, got: %v", validNames)
 	}
