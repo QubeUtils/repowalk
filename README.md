@@ -1,5 +1,7 @@
 # RepoWalk 🚶‍♂️
 
+[![NPM Version](https://img.shields.io/npm/v/repowalk.svg)](https://www.npmjs.com/package/repowalk)
+
 RepoWalk is a blazing-fast, interactive CLI tool written in Go that walks your repository and packs it into a beautifully formatted Markdown document. 
 
 Designed specifically for the era of AI coding, RepoWalk is the ultimate bridge between your local codebase and large language models (LLMs) like Claude, ChatGPT, or Ollama. Instead of copy-pasting individual files, you can generate a single "Super Context" file containing exactly what the AI needs to know.
@@ -24,6 +26,7 @@ brew install qubeutils/tap/repowalk
 ```
 
 **NPM (Node.js):**
+Available on [npm](https://www.npmjs.com/package/repowalk)
 ```bash
 npx repowalk ui
 # OR globally
@@ -53,20 +56,66 @@ repowalk ui
 *   `q` or `Esc`: Quit
 
 ### 2. The CLI 
-Run RepoWalk entirely headless to generate your context file immediately:
+Run RepoWalk entirely headless to generate your context file immediately or manage your configuration.
 
+**Basic Usage:**
 ```bash
-# Dump the current directory to repowalk_context.md
+# Output the current directory context to stdout
 repowalk
 
-# Output directly to stdout
-repowalk -o stdout
+# Redirect the output to a file
+repowalk > repowalk_context.md
 
-# Automatically copy to clipboard
-repowalk -c
+# Walk a specific directory
+repowalk ./path/to/my/project > repowalk_context.md
+```
 
-# Use the Security persona
-repowalk --persona security
+**Commands:**
+
+| Command | Description |
+| :--- | :--- |
+| `ui` | Launches an interactive TUI to visually browse the repository, select specific files/folders, and generate an LLM context dump. |
+| `tree` | Prints a colored, visual tree structure of the repository, respecting `.gitignore`. Useful for previewing what will be included in the context dump. |
+| `stats` | Calculates and displays statistics such as total files, total size, and estimated LLM token count for the current repository state. |
+| `diff` | Creates an LLM context dump containing only the files that have changed according to the git state (untracked, unstaged, staged). |
+| `init` | Creates a `.repowalk.json` file in your current directory. This local configuration overrides your global settings and can be committed to your VCS. |
+| `completion` | Generates the autocompletion script for the specified shell. |
+| `help` | Help about any command. |
+
+**Global Flags (available for most commands):**
+
+| Flag | Description |
+| :--- | :--- |
+| `--ignore-exts strings` | Override extensions to ignore (comma-separated). Overrides `~/.repowalk/config.json`. |
+| `--json` | Export context as JSON format. |
+| `--max-size int` | Maximum file size to include in bytes (default 1048576). |
+| `-m, --microservice strings`| Selectively walk specific subdirectories (e.g., `-m auth,payment`). |
+| `--no-redact` | Disable automatic secret redaction. |
+| `--persona string` | Wrap context in a preset persona prompt (e.g., `security`, `refactor`, `review`). |
+| `--template string` | Provide a custom template for the LLM dump. |
+| `--yaml` | Export context as YAML format. |
+| `-h, --help` | Show help for a command. |
+
+**Tree Command Specific Flags:**
+
+| Flag | Description |
+| :--- | :--- |
+| `--compact` | Print a compact representation of the tree. |
+| `-L, --level int` | Descend only a certain number of directories deep. |
+
+**Examples with Flags:**
+```bash
+# Use the Security persona and export as JSON
+repowalk --persona security --json > context.json
+
+# Walk only specific microservices, ignoring .md and .txt files
+repowalk -m auth,payment --ignore-exts .md,.txt > context.md
+
+# Preview the tree structure up to 2 levels deep
+repowalk tree -L 2
+
+# Output repo statistics
+repowalk stats
 ```
 
 ## 🤝 Contributing
