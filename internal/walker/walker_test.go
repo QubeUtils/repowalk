@@ -42,7 +42,7 @@ type MockFileSystem struct {
 }
 
 func (m *MockFileSystem) WalkDir(root string, fn fs.WalkDirFunc) error {
-	fn(root, &MockDirEntry{&MockFileInfo{name: filepath.Base(root), isDir: true}}, nil)
+	_ = fn(root, &MockDirEntry{&MockFileInfo{name: filepath.Base(root), isDir: true}}, nil)
 
 	for path, content := range m.Files {
 		// Simulate files inside root

@@ -393,7 +393,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.exportStep = 0
 					m.exportInput.Blur()
 
-					os.MkdirAll(exportDir, 0755)
+					if err := os.MkdirAll(exportDir, 0755); err != nil {
+						m.message = "Failed to create directory: " + err.Error()
+						return m, nil
+					}
 					dump := m.generateDump()
 					err := os.WriteFile(outPath, []byte(dump), 0644)
 					if err != nil {
@@ -490,10 +493,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "pgup":
-			m.fileViewport.HalfViewUp()
+			m.fileViewport.HalfPageUp()
 
 		case "pgdown":
-			m.fileViewport.HalfViewDown()
+			m.fileViewport.HalfPageDown()
 		}
 
 	case tea.WindowSizeMsg:
@@ -578,9 +581,9 @@ func (m *Model) handleEditMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateMetrics() // Tokens changed
 			m.renderEditViewport()
 		case "pgdown":
-			m.fileViewport.HalfViewDown()
+			m.fileViewport.HalfPageDown()
 		case "pgup":
-			m.fileViewport.HalfViewUp()
+			m.fileViewport.HalfPageUp()
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
