@@ -7,6 +7,9 @@ import (
 	"math"
 	"net/http"
 	"os"
+
+	"golang.org/x/mod/semver"
+
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,30 +25,58 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
+	"github.com/muesli/reflow/truncate"
+	"github.com/muesli/reflow/wrap"
 	"github.com/pkoukk/tiktoken-go"
 )
 
 var tkm, _ = tiktoken.GetEncoding("cl100k_base")
 
+// ==========================================
+// Layout Configuration (Tweak these!)
+// ==========================================
+const (
+	LayoutLeftPaneWidthRatio  = 2.0 // Divides total width (e.g., 2.0 = 50%)
+	LayoutLeftPaneWidthOffset = 2   // Subtracts from the calculated left pane width
+
+	LayoutPanePaddingY    = 0 // Top and Bottom padding inside the panes
+	LayoutPanePaddingX    = 1 // Left and Right padding inside the panes
+	LayoutGapBetweenPanes = 1 // Horizontal space between the left and right pane
+
+	LayoutBannerMarginTop    = 1 // Space above the banner
+	LayoutBannerMarginBottom = 1 // Space below the banner
+	LayoutBannerMarginLeft   = 1 // Space to the left of the banner
+
+	LayoutHeaderBottomLines     = 1 // Empty lines between the banner/search-bar and the main containers
+	LayoutPaneTitleMarginBottom = 1 // Space between the "root" titles and the container box
+
+	LayoutFooterMarginTop = 1 // Empty lines above the footer block
+
+	LayoutVisibleLinesOffset = 16 // Vertical space reserved for UI (adjust if changing margins)
+)
+
 var (
 	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1).MarginBottom(1)
 	selectedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Bold(true)
+	exclusiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Bold(true)
 	unselectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#A3A3A3"))
 	directoryStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#3498DB")).Bold(true)
 	cursorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF7698")).Bold(true)
-	metricsStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#E0E0E0")).MarginTop(1)
+	metricsStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#E0E0E0"))
 	keybindStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).MarginTop(1)
 )
 
 type UINode struct {
-	Name      string
-	Path      string
-	IsDir     bool
-	Selected  bool
-	Expanded  bool
-	IsIgnored bool
-	Children  map[string]*UINode
-	FileNode  *walker.FileNode
+	Name        string
+	Path        string
+	IsDir       bool
+	Selected    bool
+	Expanded    bool
+	IsIgnored   bool
+	IsExclusive bool
+	Children    map[string]*UINode
+	FileNode    *walker.FileNode
 }
 
 type Model struct {
@@ -61,10 +92,13 @@ type Model struct {
 	viewportOffset int
 	height         int
 	width          int
+	maxTreeWidth   int
 
 	totalSelected int
 	totalSize     int64
 	totalTokens   int
+	projectSize   int64
+	projectFiles  int
 	message       string
 	newVersion    string
 
@@ -76,8 +110,13 @@ type Model struct {
 	quitting       bool
 	fileViewport   viewport.Model
 
-	editMode   bool
-	editCursor int
+	editMode    bool
+	editCursor  int
+	minimalMode bool
+
+	lastSpacedNode *UINode
+	lastSpaceTime  time.Time
+	showHelp       bool
 }
 
 type flatNode struct {
@@ -109,8 +148,8 @@ func NewModel(files []walker.FileNode, templateStr, persona, theme, defaultOut s
 					Name:      part,
 					Path:      pathSoFar,
 					IsDir:     isDir,
-					Selected:  !f.IsIgnored, // Select by default unless ignored
-					Expanded:  true,
+					Selected:  !f.IsIgnored,                                  // Select by default unless ignored
+					Expanded:  !f.IsIgnored && !strings.HasPrefix(part, "."), // Collapse ignored and hidden directories by default
 					IsIgnored: f.IsIgnored,
 					Children:  make(map[string]*UINode),
 				}
@@ -136,22 +175,29 @@ func NewModel(files []walker.FileNode, templateStr, persona, theme, defaultOut s
 	ei.CharLimit = 256
 	ei.Width = 60
 
+	var pSize int64
+	var pFiles int
+	for i := range files {
+		if !files[i].IsDir {
+			pSize += files[i].Size
+			pFiles++
+		}
+	}
+
 	m := &Model{
-		root:        root,
-		templateStr: templateStr,
-		persona:     persona,
-		theme:       theme,
-		defaultOut:  defaultOut,
-		costPer1M:   costPer1M,
-		searchInput: ti,
-		exportInput: ei,
+		root:         root,
+		templateStr:  templateStr,
+		persona:      persona,
+		theme:        theme,
+		defaultOut:   defaultOut,
+		costPer1M:    costPer1M,
+		searchInput:  ti,
+		exportInput:  ei,
+		projectSize:  pSize,
+		projectFiles: pFiles,
 	}
 
 	vp := viewport.New(40, 20)
-	vp.Style = lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Padding(0, 1)
 	m.fileViewport = vp
 
 	m.updateFlatNodes()
@@ -162,21 +208,24 @@ func NewModel(files []walker.FileNode, templateStr, persona, theme, defaultOut s
 
 func (m *Model) updateFlatNodes() {
 	var flat []*flatNode
+	var maxW int
 
 	var traverse func(node *UINode, drawingPrefix string, childPrefix string, level int) bool
 	traverse = func(node *UINode, drawingPrefix string, childPrefix string, level int) bool {
 		// If searching, check if this node or any child matches
-		query := strings.ToLower(m.searchInput.Value())
+		rawQuery := m.searchInput.Value()
+		queries := parseQueries(rawQuery)
+
 		matches := true
-		if query != "" {
-			matches = strings.Contains(strings.ToLower(node.Name), query)
+		if len(queries) > 0 {
+			matches = matchesAnyQuery(node.Name, node.IsDir, queries)
 		}
 
 		// Pre-calculate which children match if we are searching, to know if this dir should be shown
 		var matchingChildren []string
 		if node.IsDir {
 			for k, v := range node.Children {
-				if query == "" || strings.Contains(strings.ToLower(k), query) || hasMatchingChild(v, query) {
+				if len(queries) == 0 || matchesAnyQuery(k, v.IsDir, queries) || hasMatchingChild(v, queries) {
 					matchingChildren = append(matchingChildren, k)
 				}
 			}
@@ -185,8 +234,19 @@ func (m *Model) updateFlatNodes() {
 			}
 		}
 
-		if !matches && query != "" {
+		if !matches && len(queries) > 0 {
 			return false
+		}
+
+		lineW := 6 + runewidth.StringWidth(drawingPrefix) + runewidth.StringWidth(node.Name)
+		if node.IsDir {
+			lineW += 4
+		}
+		if node.IsIgnored {
+			lineW += 10
+		}
+		if lineW > maxW {
+			maxW = lineW
 		}
 
 		flat = append(flat, &flatNode{
@@ -197,7 +257,7 @@ func (m *Model) updateFlatNodes() {
 
 		if node.IsDir && node.Expanded {
 			var names []string
-			if query != "" {
+			if len(queries) > 0 {
 				names = matchingChildren
 			} else {
 				for k := range node.Children {
@@ -233,14 +293,58 @@ func (m *Model) updateFlatNodes() {
 	}
 
 	m.flatNodes = flat
+	m.maxTreeWidth = maxW
 }
 
-func hasMatchingChild(node *UINode, query string) bool {
-	if strings.Contains(strings.ToLower(node.Name), query) {
+func parseQueries(raw string) []string {
+	raw = strings.ToLower(raw)
+	var parts []string
+	if strings.Contains(raw, "+") {
+		parts = strings.Split(raw, "+")
+	} else if strings.Contains(raw, ",") {
+		parts = strings.Split(raw, ",")
+	} else if strings.Contains(raw, "|") {
+		parts = strings.Split(raw, "|")
+	} else {
+		parts = []string{raw}
+	}
+
+	var queries []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			queries = append(queries, p)
+		}
+	}
+	return queries
+}
+
+func matchesAnyQuery(name string, isDir bool, queries []string) bool {
+	if len(queries) == 0 {
+		return true
+	}
+	lowerName := strings.ToLower(name)
+	for _, q := range queries {
+		// If query starts with a dot and it's a file, do a strict extension or dotfile match
+		if strings.HasPrefix(q, ".") && !isDir {
+			if strings.HasSuffix(lowerName, q) || strings.HasPrefix(lowerName, q) {
+				return true
+			}
+		} else {
+			if strings.Contains(lowerName, q) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasMatchingChild(node *UINode, queries []string) bool {
+	if matchesAnyQuery(node.Name, node.IsDir, queries) {
 		return true
 	}
 	for _, child := range node.Children {
-		if hasMatchingChild(child, query) {
+		if hasMatchingChild(child, queries) {
 			return true
 		}
 	}
@@ -267,10 +371,26 @@ func (m *Model) updateMetrics() {
 	traverse(m.root)
 }
 
-func (m *Model) toggleSelection(node *UINode, state bool) {
+func (m *Model) toggleSelection(node *UINode, state bool, exclusive bool) {
 	node.Selected = state
+	node.IsExclusive = exclusive
 	for _, child := range node.Children {
-		m.toggleSelection(child, state)
+		m.toggleSelection(child, state, exclusive)
+	}
+}
+
+func (m *Model) clearExclusiveFlags(node *UINode) {
+	node.IsExclusive = false
+	for _, child := range node.Children {
+		m.clearExclusiveFlags(child)
+	}
+}
+
+func (m *Model) clearAllSelections(node *UINode) {
+	node.Selected = false
+	node.IsExclusive = false
+	for _, child := range node.Children {
+		m.clearAllSelections(child)
 	}
 }
 
@@ -294,7 +414,7 @@ func checkUpdate() tea.Msg {
 		return nil
 	}
 
-	if rel.TagName != "" && rel.TagName != version.Version {
+	if rel.TagName != "" && semver.Compare(rel.TagName, version.Version) > 0 {
 		return updateMsg{NewVersion: rel.TagName}
 	}
 	return nil
@@ -353,9 +473,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.isSearching {
 			switch msg.String() {
-			case "enter", "esc":
+			case "enter":
+				// Quick Export! Unselect everything first
+				m.clearAllSelections(m.root)
+
+				// Select only the currently filtered visible files
+				for _, fn := range m.flatNodes {
+					if !fn.Node.IsDir {
+						fn.Node.Selected = true
+					}
+				}
+				m.updateMetrics()
+
 				m.isSearching = false
 				m.searchInput.Blur()
+
+				// Jump directly to export
+				m.exportStep = 1
+				m.exportInput.Focus()
+				return m, textinput.Blink
+			case "esc":
+				m.isSearching = false
+				m.searchInput.Blur()
+			case "up":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down":
+				if m.cursor < len(m.flatNodes)-1 {
+					m.cursor++
+				}
 			default:
 				m.searchInput, cmd = m.searchInput.Update(msg)
 				m.updateFlatNodes()
@@ -416,10 +563,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 
+		case "h", "?":
+			m.showHelp = !m.showHelp
+			return m, nil
+
+		case "esc":
+			if m.showHelp {
+				m.showHelp = false
+			} else {
+				m.message = ""
+			}
+			return m, nil
+
 		case "/":
 			m.isSearching = true
 			m.searchInput.Focus()
 			return m, textinput.Blink
+
+		case "m":
+			m.minimalMode = !m.minimalMode
+			return m, nil
 
 		case "up", "k":
 			if m.cursor > 0 {
@@ -431,7 +594,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 
-		case "left", "h":
+		case "left":
 			if len(m.flatNodes) > 0 {
 				node := m.flatNodes[m.cursor].Node
 				if node.IsDir && node.Expanded {
@@ -452,7 +615,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case " ":
 			if len(m.flatNodes) > 0 {
 				node := m.flatNodes[m.cursor].Node
-				m.toggleSelection(node, !node.Selected)
+
+				now := time.Now()
+				isDoubleTap := false
+				if m.lastSpacedNode == node && now.Sub(m.lastSpaceTime) < 500*time.Millisecond {
+					isDoubleTap = true
+				}
+
+				m.lastSpacedNode = node
+				m.lastSpaceTime = now
+
+				if isDoubleTap {
+					// Exclusive Select
+					m.clearAllSelections(m.root)
+					m.toggleSelection(node, true, true)
+					m.message = "Exclusively Selected"
+				} else {
+					// Normal toggle
+					m.clearExclusiveFlags(m.root) // clear any previous exclusive state
+					newState := !node.Selected
+					m.toggleSelection(node, newState, false)
+					if newState {
+						m.message = "Selected"
+					} else {
+						m.message = "Deselected"
+					}
+				}
+
 				m.updateMetrics()
 			}
 
@@ -502,16 +691,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.fileViewport.Width = msg.Width/2 - 4
-		m.fileViewport.Height = msg.Height - 12
 	}
 
 	// Basic viewport handling
-	visibleLines := m.height - 12
+	visibleLines := m.height - LayoutVisibleLinesOffset
+	if m.minimalMode {
+		visibleLines = m.height - 6
+		if m.isSearching || m.exportStep > 0 {
+			visibleLines = m.height - 9
+		}
+	}
 	if visibleLines < 5 {
 		visibleLines = 5
 	}
 
+	maxAllowedLeftPaneWidth := int(float64(m.width)/LayoutLeftPaneWidthRatio) - LayoutLeftPaneWidthOffset
+	leftPaneWidth := m.maxTreeWidth + (LayoutPanePaddingX * 2)
+	if leftPaneWidth > maxAllowedLeftPaneWidth {
+		leftPaneWidth = maxAllowedLeftPaneWidth
+	}
+	if leftPaneWidth < 20 {
+		leftPaneWidth = 20
+	}
+	m.fileViewport.Height = visibleLines
+	m.fileViewport.Width = m.width - leftPaneWidth - 4 - LayoutGapBetweenPanes - (LayoutPanePaddingX * 2)
 	if m.cursor < m.viewportOffset {
 		m.viewportOffset = m.cursor
 	} else if m.cursor >= m.viewportOffset+visibleLines {
@@ -542,11 +745,19 @@ func (m *Model) updateViewportContent() {
 					}
 
 					err := quick.Highlight(&buf, code, ext, "terminal256", m.theme)
+					var content string
 					if err == nil && buf.Len() > 0 {
-						m.fileViewport.SetContent(buf.String())
+						content = buf.String()
 					} else {
-						m.fileViewport.SetContent(code)
+						content = code
 					}
+
+					if m.fileViewport.Width > 0 {
+						// Hard wrap unbroken words first, then let lipgloss handle normal word-wrapping
+						content = wrap.String(content, m.fileViewport.Width)
+						content = lipgloss.NewStyle().Width(m.fileViewport.Width).Render(content)
+					}
+					m.fileViewport.SetContent(content)
 				}
 			}
 		} else {
@@ -588,8 +799,27 @@ func (m *Model) handleEditMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.fileViewport.Width = msg.Width/2 - 4
-		m.fileViewport.Height = msg.Height - 12
+		visibleLines := m.height - LayoutVisibleLinesOffset
+		if m.minimalMode {
+			visibleLines = m.height - 6
+			if m.isSearching || m.exportStep > 0 {
+				visibleLines = m.height - 9
+			}
+		}
+		if visibleLines < 5 {
+			visibleLines = 5
+		}
+
+		maxAllowedLeftPaneWidth := int(float64(m.width)/LayoutLeftPaneWidthRatio) - LayoutLeftPaneWidthOffset
+		leftPaneWidth := m.maxTreeWidth
+		if leftPaneWidth > maxAllowedLeftPaneWidth {
+			leftPaneWidth = maxAllowedLeftPaneWidth
+		}
+		if leftPaneWidth < 20 {
+			leftPaneWidth = 20
+		}
+		m.fileViewport.Height = visibleLines
+		m.fileViewport.Width = m.width - leftPaneWidth - 4 - LayoutGapBetweenPanes
 		m.renderEditViewport()
 	}
 	return m, nil
@@ -652,7 +882,12 @@ func (m *Model) renderEditViewport() {
 		b.WriteString(style.Render(cleanLine) + "\n")
 	}
 
-	m.fileViewport.SetContent(b.String())
+	content := b.String()
+	if m.fileViewport.Width > 0 {
+		content = wrap.String(content, m.fileViewport.Width)
+		content = lipgloss.NewStyle().Width(m.fileViewport.Width).Render(content)
+	}
+	m.fileViewport.SetContent(content)
 }
 
 func (m *Model) reconstructFileContent(fn *walker.FileNode) {
@@ -684,26 +919,41 @@ func (m *Model) View() string {
 		return "Exiting RepoWalk UI...\n"
 	}
 
-	var header strings.Builder
-	title := "RepoWalk Interactive Setup"
-	if m.newVersion != "" {
-		title += fmt.Sprintf(" | 🚀 Update available: %s! (Run 'npm i -g repowalk')", m.newVersion)
+	if m.showHelp {
+		return m.renderHelpScreen()
 	}
-	header.WriteString(titleStyle.Render(title))
-	header.WriteString("\n")
+
+	var header strings.Builder
+	if !m.minimalMode {
+		header.WriteString(m.renderBanner())
+		if m.newVersion != "" {
+			updateMsg := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF7698")).
+				Bold(true).
+				MarginBottom(1).
+				Render(fmt.Sprintf("🚀 Update available: %s! (Run 'npm i -g repowalk')", m.newVersion))
+			header.WriteString(updateMsg + "\n")
+		}
+	}
 
 	if m.isSearching {
-		header.WriteString("\n" + m.searchInput.View() + "\n\n")
+		header.WriteString("\n" + m.searchInput.View() + strings.Repeat("\n", LayoutHeaderBottomLines))
 	} else if m.exportStep == 1 {
-		header.WriteString("\nExport Filename: " + m.exportInput.View() + "\n\n")
+		header.WriteString("\nExport Filename: " + m.exportInput.View() + strings.Repeat("\n", LayoutHeaderBottomLines))
 	} else if m.exportStep == 2 {
-		header.WriteString(fmt.Sprintf("\nExport Filename: %s\nExport Directory: %s\n\n", lipgloss.NewStyle().Foreground(lipgloss.Color("62")).Render(m.exportFileName), m.exportInput.View()))
-	} else {
-		header.WriteString("\n\n")
+		header.WriteString(fmt.Sprintf("\nExport Filename: %s\nExport Directory: %s%s", lipgloss.NewStyle().Foreground(lipgloss.Color("62")).Render(m.exportFileName), m.exportInput.View(), strings.Repeat("\n", LayoutHeaderBottomLines)))
+	} else if !m.minimalMode {
+		header.WriteString(strings.Repeat("\n", LayoutHeaderBottomLines))
 	}
 
-	// 12 lines for header/footer (title, search, metrics, keybinds)
-	visibleLines := m.height - 12
+	// Adjusted for modular banner height
+	visibleLines := m.height - LayoutVisibleLinesOffset
+	if m.minimalMode {
+		visibleLines = m.height - 6
+		if m.isSearching || m.exportStep > 0 {
+			visibleLines = m.height - 9
+		}
+	}
 	if visibleLines < 5 {
 		visibleLines = 5
 	}
@@ -711,6 +961,16 @@ func (m *Model) View() string {
 	endIdx := m.viewportOffset + visibleLines
 	if endIdx > len(m.flatNodes) {
 		endIdx = len(m.flatNodes)
+	}
+
+	// Make left pane width dynamic based on configuration and longest item
+	maxAllowedLeftPaneWidth := int(float64(m.width)/LayoutLeftPaneWidthRatio) - LayoutLeftPaneWidthOffset
+	leftPaneWidth := m.maxTreeWidth + (LayoutPanePaddingX * 2)
+	if leftPaneWidth > maxAllowedLeftPaneWidth {
+		leftPaneWidth = maxAllowedLeftPaneWidth
+	}
+	if leftPaneWidth < 20 {
+		leftPaneWidth = 20
 	}
 
 	var treePane strings.Builder
@@ -724,7 +984,11 @@ func (m *Model) View() string {
 
 		checkbox := "[ ]"
 		if fn.Node.Selected {
-			checkbox = selectedStyle.Render("[x]")
+			if fn.Node.IsExclusive {
+				checkbox = exclusiveStyle.Render("[*]")
+			} else {
+				checkbox = selectedStyle.Render("[x]")
+			}
 		} else {
 			checkbox = unselectedStyle.Render(checkbox)
 		}
@@ -754,7 +1018,13 @@ func (m *Model) View() string {
 			prefix = unselectedStyle.Render(prefix)
 		}
 
-		treePane.WriteString(fmt.Sprintf("%s%s %s%s\n", cursor, checkbox, prefix, name))
+		line := fmt.Sprintf("%s%s %s%s", cursor, checkbox, prefix, name)
+		leftPaneInnerWidth := leftPaneWidth - (LayoutPanePaddingX * 2)
+		if leftPaneInnerWidth < 0 {
+			leftPaneInnerWidth = 0
+		}
+		line = truncateString(line, leftPaneInnerWidth)
+		treePane.WriteString(line + "\n")
 	}
 
 	// Fill remaining height with newlines so the pane height is consistent
@@ -763,16 +1033,13 @@ func (m *Model) View() string {
 		treePane.WriteString("\n")
 	}
 
-	// Make left pane 50% width
-	leftPaneWidth := m.width/2 - 2
-	if leftPaneWidth < 20 {
-		leftPaneWidth = 20
-	}
+	panelStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(LayoutPanePaddingY, LayoutPanePaddingX)
 
-	leftStyle := lipgloss.NewStyle().Width(leftPaneWidth).PaddingRight(2)
-
-	// Right Pane Header (Breadcrumbs)
-	rightHeader := ""
+	// Left Pane Header (Breadcrumbs of selected item)
+	pathStr := ""
 	if len(m.flatNodes) > 0 && m.cursor < len(m.flatNodes) {
 		fn := m.flatNodes[m.cursor]
 		parts := strings.Split(filepath.ToSlash(fn.Node.Path), "/")
@@ -780,63 +1047,196 @@ func (m *Model) View() string {
 		for i, p := range parts {
 			if i == len(parts)-1 && !fn.Node.IsDir {
 				breadcrumbs = append(breadcrumbs, "📄 "+p)
-			} else {
+			} else if p != "." && p != "" {
 				breadcrumbs = append(breadcrumbs, "📁 "+p)
+			} else if p == "." {
+				breadcrumbs = append(breadcrumbs, "📁 root")
 			}
 		}
-		pathStr := strings.Join(breadcrumbs, " / ")
-
-		// Add scroll indicator if it's a file
-		if !fn.Node.IsDir && fn.Node.FileNode != nil && !fn.Node.FileNode.IsBinary {
-			scrollPct := m.fileViewport.ScrollPercent() * 100
-			if math.IsNaN(scrollPct) {
-				scrollPct = 0
-			}
-			pathStr += fmt.Sprintf("   [↕ %3.0f%%]", scrollPct)
-		}
-
-		rightHeader = lipgloss.NewStyle().
-			Background(lipgloss.Color("#2E4053")).
-			Foreground(lipgloss.Color("#FDFEFE")).
-			Padding(0, 1).
-			Bold(true).
-			Render(pathStr) + "\n\n"
+		pathStr = strings.Join(breadcrumbs, " / ")
 	}
+	pathStr = truncateString(pathStr, leftPaneWidth+2)
 
-	// Create horizontal layout
-	rightPane := lipgloss.JoinVertical(lipgloss.Left, rightHeader, m.fileViewport.View())
+	leftHeader := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#04B575")).
+		Bold(true).
+		MarginBottom(LayoutPaneTitleMarginBottom).
+		Render(pathStr)
+
+	rightPaneWidth := m.width - leftPaneWidth - 4 - LayoutGapBetweenPanes
+
+	// Right Pane Header
+	rightHeaderStr := ""
+	if len(m.flatNodes) > 0 && m.cursor < len(m.flatNodes) {
+		fn := m.flatNodes[m.cursor]
+		if !fn.Node.IsDir {
+			rightHeaderStr = "📄 " + fn.Node.Name
+			if fn.Node.FileNode != nil && !fn.Node.FileNode.IsBinary {
+				scrollPct := m.fileViewport.ScrollPercent() * 100
+				if math.IsNaN(scrollPct) {
+					scrollPct = 0
+				}
+				rightHeaderStr += fmt.Sprintf("   [↕ %3.0f%%]", scrollPct)
+			}
+		} else {
+			rightHeaderStr = "📁 [Directory]"
+		}
+	}
+	rightHeaderStr = truncateString(rightHeaderStr, rightPaneWidth+2)
+
+	rightHeader := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#3498DB")).
+		Bold(true).
+		MarginBottom(LayoutPaneTitleMarginBottom).
+		Render(rightHeaderStr)
+
+	treePaneStr := panelStyle.Width(leftPaneWidth).Height(visibleLines).Render(strings.TrimRight(treePane.String(), "\n"))
+	viewportPaneStr := panelStyle.Width(rightPaneWidth).Height(visibleLines).Render(m.fileViewport.View())
+
+	leftPane := lipgloss.JoinVertical(lipgloss.Left, leftHeader, treePaneStr)
+	rightPane := lipgloss.JoinVertical(lipgloss.Left, rightHeader, viewportPaneStr)
+
 	middle := lipgloss.JoinHorizontal(lipgloss.Top,
-		leftStyle.Render(treePane.String()),
-		rightPane,
+		leftPane,
+		lipgloss.NewStyle().PaddingLeft(LayoutGapBetweenPanes).Render(rightPane),
 	)
 
 	var footer strings.Builder
-	footer.WriteString("\n")
 
-	// Metrics Dashboard
-	cost := float64(m.totalTokens) / 1000000.0 * m.costPer1M
-	metrics := fmt.Sprintf("Files: %d | Size: %d bytes | Tokens: %d (~$%.4f)", m.totalSelected, m.totalSize, m.totalTokens, cost)
-	footer.WriteString(metricsStyle.Render(metrics) + "\n")
+	if !m.minimalMode {
+		footer.WriteString(strings.Repeat("\n", LayoutFooterMarginTop))
 
-	// Message
-	if m.message != "" {
-		footer.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F39C12")).Render(m.message) + "\n")
-	} else {
+		// Metrics Dashboard
+		cost := float64(m.totalTokens) / 1000000.0 * m.costPer1M
+		metrics := fmt.Sprintf("Files: %d/%d | Size: %s/%s | Tokens: %d (~$%.4f)", 
+			m.totalSelected, m.projectFiles, 
+			formatSize(m.totalSize), formatSize(m.projectSize), 
+			m.totalTokens, cost)
+		footer.WriteString(metricsStyle.Render(metrics) + "\n")
+
+		// Message
+		if m.message != "" {
+			footer.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F39C12")).Render(m.message) + "\n")
+		} else {
+			footer.WriteString("\n")
+		}
+
+		// Keybinds
+		help := "↑/k: up • ↓/j: down • space: toggle • e: edit • s: save as • enter: quick save • c: copy • /: search • m: UI • q: quit\npgup/pgdn: scroll preview"
+		if m.isSearching {
+			help = "enter/esc: exit search"
+		} else if m.exportStep == 1 {
+			help = "enter: confirm filename • esc: cancel export"
+		} else if m.exportStep == 2 {
+			help = "enter: save file • esc: cancel export"
+		} else if m.editMode {
+			help = "↑/k: up • ↓/j: down • space: strip/include line • e/esc: exit edit"
+		}
+		footer.WriteString(keybindStyle.Width(m.width).Render(help))
+	} else if m.message != "" {
 		footer.WriteString("\n")
+		footer.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F39C12")).Render(m.message) + "\n")
 	}
-
-	// Keybinds
-	help := "↑/k: up • ↓/j: down • space: toggle • e: edit • s: save as • enter: quick save • c: copy • /: search • q: quit\npgup/pgdn: scroll preview"
-	if m.isSearching {
-		help = "enter/esc: exit search"
-	} else if m.exportStep == 1 {
-		help = "enter: confirm filename • esc: cancel export"
-	} else if m.exportStep == 2 {
-		help = "enter: save file • esc: cancel export"
-	} else if m.editMode {
-		help = "↑/k: up • ↓/j: down • space: strip/include line • e/esc: exit edit"
-	}
-	footer.WriteString(keybindStyle.Width(m.width).Render(help))
 
 	return header.String() + middle + footer.String()
+}
+
+func (m *Model) renderBanner() string {
+	ascii := []string{
+		"█▀█ █▀▀ █▀█ █▀█ █ █ █ ▄▀█ █░  █▄▀",
+		"█▀▄ ██▄ █▀▀ █▄█ ▀▄▀▄▀ █▀█ █▄▄ █ █",
+	}
+
+	var banner strings.Builder
+	for _, line := range ascii {
+		runes := []rune(line)
+		for i, r := range runes {
+			pct := float64(i) / float64(len(runes)-1)
+			var color string
+			if pct < 0.5 {
+				color = interpolateColor("#04B575", "#3498DB", pct*2)
+			} else {
+				color = interpolateColor("#3498DB", "#7D56F4", (pct-0.5)*2)
+			}
+			banner.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Bold(true).Render(string(r)))
+		}
+		banner.WriteString("\n")
+	}
+	return lipgloss.NewStyle().
+		MarginTop(LayoutBannerMarginTop).
+		MarginBottom(LayoutBannerMarginBottom).
+		MarginLeft(LayoutBannerMarginLeft).
+		Render(banner.String())
+}
+
+func interpolateColor(start, end string, percent float64) string {
+	r1, g1, b1 := hexToRGB(start)
+	r2, g2, b2 := hexToRGB(end)
+
+	r := int(float64(r1) + percent*float64(r2-r1))
+	g := int(float64(g1) + percent*float64(g2-g1))
+	b := int(float64(b1) + percent*float64(b2-b1))
+
+	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
+}
+
+func hexToRGB(hex string) (int, int, int) {
+	hex = strings.TrimPrefix(hex, "#")
+	var r, g, b int
+	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+	return r, g, b
+}
+
+func (m *Model) renderHelpScreen() string {
+	keys := []string{
+		"↑ / k", "↓ / j", "←", "→ / l", "Space", "e", "s", "Enter", "c", "/", "m", "h / ?", "q / esc", "pgup/pgdn",
+	}
+	actions := []string{
+		"Move up", "Move down", "Collapse folder", "Expand folder", "Toggle select (Double-tap for Exclusive)",
+		"Edit file contents (Exclude/Include lines)", "Save As (Export to custom path)", "Quick save / Quick export",
+		"Copy output to clipboard", "Search (Multi-term: .go + yaml)", "Toggle Minimal UI", "Toggle this help screen",
+		"Quit", "Scroll file preview",
+	}
+
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Bold(true).Width(15).Align(lipgloss.Right).PaddingRight(2)
+	actionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E0E0E0"))
+
+	var rows []string
+	for i := range keys {
+		row := lipgloss.JoinHorizontal(lipgloss.Top, keyStyle.Render(keys[i]), actionStyle.Render(actions[i]))
+		rows = append(rows, row)
+	}
+
+	table := lipgloss.JoinVertical(lipgloss.Left, rows...)
+
+	title := lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true).MarginBottom(2).Render("RepoWalk Keyboard Shortcuts")
+	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).MarginTop(2).Render("Press 'h' or 'esc' to close this menu.")
+
+	content := lipgloss.JoinVertical(lipgloss.Center, title, table, footer)
+
+	// Center vertically and horizontally
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func truncateString(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) > maxLen {
+		return truncate.StringWithTail(s, uint(maxLen), "...")
+	}
+	return s
+}
+
+func formatSize(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }

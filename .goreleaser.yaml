@@ -5,6 +5,8 @@ project_name: repowalk
 builds:
   - env:
       - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/QubeUtils/repowalk/internal/version.Version=v{{.Version}}
     goos:
       - linux
       - windows
