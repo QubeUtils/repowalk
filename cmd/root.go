@@ -8,13 +8,16 @@ import (
 	"github.com/QubeUtils/repowalk/internal/aggregator"
 	"github.com/QubeUtils/repowalk/internal/ignore"
 	"github.com/QubeUtils/repowalk/internal/tree"
+	"github.com/QubeUtils/repowalk/internal/version"
 	"github.com/QubeUtils/repowalk/internal/walker"
 	"github.com/spf13/cobra"
+
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "repowalk [path]",
-	Short: "A high-performance repository context aggregator for LLMs",
+	Use:     "repowalk [path]",
+	Short:   "A high-performance repository context aggregator for LLMs",
+	Version: version.Version,
 	Long: `RepoWalk is a CLI tool that rapidly traverses your codebase, 
 respecting .gitignore, and aggregates your files into a single context file 
 optimized for Large Language Models.`,
