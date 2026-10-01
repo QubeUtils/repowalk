@@ -25,3 +25,4 @@ repowalk
 .vscode/
 *.swp
 .DS_Store
+npm/README.md
