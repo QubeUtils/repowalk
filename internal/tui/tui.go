@@ -57,7 +57,7 @@ const (
 )
 
 var (
-	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1).MarginBottom(1)
+
 	selectedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Bold(true)
 	exclusiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Bold(true)
 	unselectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#A3A3A3"))
@@ -1183,7 +1183,7 @@ func interpolateColor(start, end string, percent float64) string {
 func hexToRGB(hex string) (int, int, int) {
 	hex = strings.TrimPrefix(hex, "#")
 	var r, g, b int
-	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+	_, _ = fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
 	return r, g, b
 }
 
