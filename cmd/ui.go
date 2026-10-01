@@ -19,12 +19,17 @@ select specific files/folders, and generate an LLM context dump.
 
 Keybindings:
   ↑/↓ or k/j: Navigate tree
-  Space: Toggle file inclusion
+  ←: Collapse folder
+  → or l: Expand folder
+  Space: Toggle file inclusion (Double-tap for Exclusive Select)
   e: Edit Mode (preview and strip lines with Space)
   s: Save As... (interactive export prompt)
   Enter: Quick Save to default output
-  /: Search and filter
-  c: Copy to clipboard`,
+  /: Search and filter (Supports multiple terms like .go + yaml)
+  c: Copy to clipboard
+  m: Toggle Minimal UI mode
+  h or ?: Show Keyboard Shortcuts help screen
+  PgUp/PgDn: Scroll file preview`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetPath := "."
 		if len(args) > 0 {

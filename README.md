@@ -46,13 +46,16 @@ Launch the beautiful terminal UI to visually select exactly what you want to inc
 ```bash
 repowalk ui
 ```
-*   `Up/Down/Left/Right` or `h/j/k/l`: Navigate the file tree
-*   `Space`: Select/Deselect a file or folder
+*   `Up/Down/Left/Right` or `k/j/l`: Navigate the file tree (`Left` collapses folder, `Right` or `l` expands)
+*   `Space`: Toggle select. Double-tap quickly for **Exclusive Select** (only includes that file/folder).
 *   `e`: Enter **Edit Mode** to preview a file. Once inside, press `Space` to cycle through line states (Include, Exclude, Exclusively Include).
 *   `Enter`: **Quick Save** the current context to your default output path.
 *   `s`: **Save As...** interactive prompt to set a custom export filename and directory.
 *   `c`: Copy the generated Markdown to your clipboard
-*   `/`: Search and filter files
+*   `/`: Search and filter files (Supports multiple terms like `.go yaml`)
+*   `m`: Toggle **Minimal UI** mode
+*   `h` or `?`: Show Keyboard Shortcuts help screen
+*   `PgUp/PgDn`: Scroll file preview
 *   `q` or `Esc`: Quit
 
 ### 2. The CLI 
