@@ -45,6 +45,7 @@ brews:
       owner: QubeUtils
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
