@@ -1,35 +1,103 @@
 # Contributing to RepoWalk
 
-First off, thank you for considering contributing to RepoWalk! It's people like you that make it such a great tool.
+Thanks for thinking about contributing! We're glad you're here.
 
-## Development Setup
+Whether you're fixing a bug, suggesting a feature, writing tests, improving docs, or just curious about how things work, we'd love your help. This guide should get you started.
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/QubeUtils/repowalk.git
-   cd repowalk
-   ```
+## Getting Started
 
-2. **Run the CLI:**
-   ```bash
-   go run . --help
-   ```
+### What You'll Need
 
-3. **Run the TUI:**
-   ```bash
-   go run . ui
-   ```
+- Git
+- Go (check `go.mod` for the version we're using)
+- A terminal
 
-4. **Run the Tests:**
-   ```bash
-   go test ./...
-   ```
+### Set Up Your Dev Environment
 
-## Pull Request Process
+Clone the repo and get it running:
 
-1. Fork the repo and create your branch from `main`.
-2. If you've added code that should be tested, add tests.
-3. If you've changed APIs, update the documentation.
-4. Ensure the test suite passes (`go test ./...`).
-5. Ensure your code is properly formatted (`go fmt ./...`) and passes standard Go linting.
-6. Issue that pull request!
+```bash
+git clone https://github.com/QubeUtils/repowalk.git
+cd repowalk
+go mod download
+```
+
+### Quick Commands
+
+**See what the CLI can do:**
+```bash
+go run . --help
+```
+
+**Try the terminal UI:**
+```bash
+go run . ui
+```
+
+**Run the tests:**
+```bash
+go test ./...
+```
+
+**Format your code:**
+```bash
+gofmt -w .
+```
+
+## Ways You Can Help
+
+- **Found a bug?** Report it—include steps to reproduce and what you expected to happen.
+- **Have an idea?** Suggest it! We're open to features and improvements.
+- **Want to write tests?** Always welcome.
+- **See something in the docs that's unclear?** Fix it.
+- **Ready to code?** Pick an issue or propose a change.
+- **Like reviewing code?** We'd love your feedback on open PRs.
+
+## Making Changes
+
+### Create a Branch
+
+```bash
+git checkout -b feature/what-youre-doing
+```
+
+Keep it focused. One change per PR is easier to review.
+
+### Write and Test
+
+- Add or update tests if you're fixing a bug or adding a feature.
+- Keep your code readable and idiomatic Go.
+- If you're changing how the CLI or TUI works, update the docs too.
+
+### Before You Push
+
+```bash
+go test ./...
+gofmt -w .
+```
+
+Make sure everything passes.
+
+### Open a Pull Request
+
+When you're ready, push your branch and open a PR. In the description, tell us:
+
+- What problem this solves (or what it adds)
+- How you tested it
+- Any notes about behavior changes or compatibility
+
+That's it. We'll take it from there—thanks for the contribution!
+
+## Code Style & Standards
+
+- Write clear, idiomatic Go.
+- Commit messages should be descriptive.
+- Don't mix unrelated changes in one PR.
+- Keep functions small and focused.
+- Preserve existing behavior unless you're intentionally changing it.
+
+## Questions?
+
+Not sure where to start or how to approach something? Open an issue or discussion first. We're here to help.
+
+Thanks for making RepoWalk better! 🎉
