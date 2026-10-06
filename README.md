@@ -6,8 +6,7 @@ RepoWalk is a blazing-fast, interactive CLI tool written in Go that walks your r
 
 Designed specifically for the era of AI coding, RepoWalk is the ultimate bridge between your local codebase and large language models (LLMs) like Claude, ChatGPT, or Ollama. Instead of copy-pasting individual files, you can generate a single "Super Context" file containing exactly what the AI needs to know.
 
-<img width="1400" height="900" alt="demo" src="https://github.com/user-attachments/assets/c8642e59-1bb8-4fe4-bd75-a46ef0fc7ab7" />
-
+![Demo](Demo.gif)
 
 ## 🌟 Features
 
